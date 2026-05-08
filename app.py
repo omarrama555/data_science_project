@@ -27,7 +27,7 @@ def get_base64_image(image_path):
         return base64.b64encode(img_file.read()).decode()
 
 img_base64 = get_base64_image(
-    "/content/Crisis Communication and reputational management with SENTINEL..png"
+    "Crisis Communication and reputational management with SENTINEL..png"
 )
 
 # ---------------- CUSTOM UI ----------------
