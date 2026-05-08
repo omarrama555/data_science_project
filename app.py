@@ -1,142 +1,253 @@
+
 import streamlit as st
 import pandas as pd
 import joblib
 import os
 import re
 import time
+import nltk
+import speech_recognition as sr
+from textblob import TextBlob
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+from pydub import AudioSegment
 import io
+import base64
 import numpy as np
 
-# --- Page Config ---
+# ---------------- PAGE CONFIG ----------------
 st.set_page_config(
-    page_title="Mental Health AI Detection ",
-    page_icon="🧠",
+    page_title="SENTINEL AI",
+    page_icon="☄",
     layout="wide"
 )
 
-# --- Custom CSS ---
-st.markdown("""
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+# ---------------- LOAD BACKGROUND ----------------
+def get_base64_image(image_path):
+    with open(image_path, "rb") as img_file:
+        return base64.b64encode(img_file.read()).decode()
 
-    html, body, [class*="css"] {
-        font-family: 'Inter', sans-serif;
-    }
+img_base64 = get_base64_image(
+    "/content/Crisis Communication and reputational management with SENTINEL..png"
+)
 
-    .main { background: #0d1117; }
+# ---------------- CUSTOM UI ----------------
+st.markdown(
+    f"""
+    <style>
 
-    .stApp {
-        background: linear-gradient(135deg, #0d1117 0%, #161b22 50%, #0d1117 100%);
-        color: #e6edf3;
-    }
+    /* MAIN BACKGROUND */
+    .stApp {{
+        background:
+        linear-gradient(rgba(0,0,0,0.45),
+        rgba(0,0,0,0.45)),
+        url("data:image/png;base64,{img_base64}");
+        background-size: cover;
+        background-position: center;
+        background-repeat: no-repeat;
+        background-attachment: fixed;
+    }}
 
-    .metric-card {
-        background: linear-gradient(135deg, #161b22, #21262d);
-        border: 1px solid #30363d;
-        border-radius: 12px;
-        padding: 20px;
+    /* REMOVE STREAMLIT DEFAULT WHITE */
+    .main {{
+        background: transparent !important;
+    }}
+
+    header {{
+        background: transparent !important;
+    }}
+
+    /* GLOBAL TEXT */
+    h1, h2, h3, h4, h5, h6 {{
+        color: #ffffff !important;
+        font-weight: 700 !important;
+        letter-spacing: 1px;
+    }}
+
+    p, label, span, div {{
+        color: #f1f1f1 !important;
+    }}
+
+    /* LOGIN CARD */
+    .login-box {{
+        background: rgba(15,15,20,0.78);
+        padding: 40px;
+        border-radius: 25px;
+        backdrop-filter: blur(12px);
+        border: 1px solid rgba(255,255,255,0.12);
+        box-shadow: 0 0 30px rgba(255,0,70,0.25);
+        margin-top: 60px;
+    }}
+
+    /* TITLE */
+    .main-title {{
         text-align: center;
-        transition: transform 0.2s, box-shadow 0.2s;
-    }
-    .metric-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 8px 24px rgba(0,0,0,0.4);
-    }
+        font-size: 58px;
+        font-weight: 900;
+        color: #ff4b6e;
+        margin-bottom: 10px;
+        text-shadow: 0px 0px 15px rgba(255,75,110,0.45);
+    }}
 
-    .badge-crisis {
-        background: linear-gradient(135deg, #da3633, #b91c1c);
-        border: 1px solid #ff7b72;
-        border-radius: 12px;
-        padding: 16px 24px;
+    .sub-title {{
         text-align: center;
+        color: #d9d9d9;
+        font-size: 18px;
+        margin-bottom: 35px;
+    }}
+
+    /* INPUTS */
+    .stTextInput input,
+    .stTextArea textarea {{
+        background-color: rgba(255,255,255,0.08) !important;
+        color: white !important;
+        border: 1px solid rgba(255,255,255,0.15) !important;
+        border-radius: 14px !important;
+        padding: 14px !important;
+        font-size: 16px !important;
+    }}
+
+    .stTextInput input:focus,
+    .stTextArea textarea:focus {{
+        border: 1px solid #ff4b6e !important;
+        box-shadow: 0 0 12px rgba(255,75,110,0.4);
+    }}
+
+    /* BUTTON */
+    .stButton button {{
+        width: 100%;
+        border-radius: 14px;
+        background: linear-gradient(90deg, #ff1a1a, #1a1a1a);
         color: white;
+        border: none;
+        font-size: 17px;
         font-weight: 700;
-        font-size: 1.4rem;
-        letter-spacing: 2px;
-        box-shadow: 0 0 20px rgba(218,54,51,0.4);
-    }
-    .badge-support {
-        background: linear-gradient(135deg, #9a6700, #c67c00);
-        border: 1px solid #f0b429;
-        border-radius: 12px;
-        padding: 16px 24px;
-        text-align: center;
-        color: white;
-        font-weight: 700;
-        font-size: 1.4rem;
-        letter-spacing: 2px;
-        box-shadow: 0 0 20px rgba(240,180,41,0.3);
-    }
-    .badge-neutral {
-        background: linear-gradient(135deg, #196c2e, #238636);
-        border: 1px solid #3fb950;
-        border-radius: 12px;
-        padding: 16px 24px;
-        text-align: center;
-        color: white;
-        font-weight: 700;
-        font-size: 1.4rem;
-        letter-spacing: 2px;
-        box-shadow: 0 0 20px rgba(63,185,80,0.3);
-    }
-
-    .section-header {
-        border-left: 3px solid #58a6ff;
-        padding-left: 12px;
-        margin: 20px 0 12px 0;
-        color: #e6edf3;
-        font-weight: 600;
-    }
-
-    div[data-testid="stSidebar"] {
-        background: #161b22;
-        border-right: 1px solid #30363d;
-    }
-
-    .stButton > button {
-        border-radius: 8px;
-        font-weight: 600;
-        transition: all 0.2s;
-    }
-    .stButton > button:hover {
-        transform: translateY(-1px);
-    }
-
-    .feature-pill {
-        display: inline-block;
-        background: #21262d;
-        border: 1px solid #30363d;
-        border-radius: 20px;
-        padding: 4px 12px;
-        font-size: 0.78rem;
-        color: #8b949e;
-        margin: 2px;
-    }
-
-    .keyword-chip {
-        display: inline-block;
-        background: #3d1a1a;
-        border: 1px solid #da3633;
-        border-radius: 16px;
-        padding: 3px 10px;
-        font-size: 0.82rem;
-        color: #ff7b72;
-        margin: 3px;
-    }
-
-    .stat-box {
-        background: #161b22;
-        border: 1px solid #30363d;
-        border-radius: 10px;
         padding: 14px;
-        margin: 6px 0;
-    }
+        transition: 0.3s;
+    }}
 
-    hr { border-color: #30363d !important; }
-</style>
-""", unsafe_allow_html=True)
+    .stButton button:hover {{
+        transform: scale(1.02);
+        box-shadow: 0 0 20px rgba(255,0,0,0.55);
+        background: linear-gradient(90deg, #ff3333, #000000);
+    }}
 
-# --- Slang Dictionary ---
+    /* SIDEBAR */
+    section[data-testid="stSidebar"] {{
+        background: rgba(10,10,15,0.92);
+        border-right: 1px solid rgba(255,255,255,0.08);
+    }}
+
+    /* METRICS */
+    [data-testid="metric-container"] {{
+        background: rgba(20,20,25,0.75);
+        border: 1px solid rgba(255,255,255,0.08);
+        padding: 15px;
+        border-radius: 16px;
+    }}
+
+    /* TABLES */
+    .stTable {{
+        background: rgba(20,20,25,0.65);
+        border-radius: 12px;
+    }}
+
+    /* FILE UPLOADER */
+    [data-testid="stFileUploader"] {{
+        background: rgba(20,20,25,0.65) !important;
+        border-radius: 14px;
+        border: 1px dashed rgba(255,75,110,0.4) !important;
+    }}
+
+    /* SELECT BOX */
+    .stSelectbox > div > div {{
+        background-color: rgba(255,255,255,0.08) !important;
+        color: white !important;
+        border-radius: 12px !important;
+        border: 1px solid rgba(255,255,255,0.15) !important;
+    }}
+
+    /* DATAFRAME */
+    .stDataFrame {{
+        background: rgba(20,20,25,0.65);
+        border-radius: 12px;
+    }}
+
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+# ------------------------------------------------------------------ #
+#  MODEL REGISTRY
+#  Each entry: display_name -> { vectorizer, model, pca (optional) }
+# ------------------------------------------------------------------ #
+MODEL_REGISTRY = {
+    # ── Baseline (SMOTE only) ──────────────────────────────────────
+    "Logistic Regression — Baseline":        {"vec": "tfidf_baseline",  "mdl": "lr_baseline",  "pca": None},
+    "Random Forest — Baseline":              {"vec": "tfidf_baseline",  "mdl": "rf_baseline",  "pca": None},
+    "Gradient Boosting — Baseline":          {"vec": "tfidf_baseline",  "mdl": "gb_baseline",  "pca": None},
+    "Naive Bayes — Baseline":                {"vec": "tfidf_baseline",  "mdl": "nb_baseline",  "pca": None},
+    "LinearSVC — Baseline":                  {"vec": "tfidf_baseline",  "mdl": "svc_baseline", "pca": None},
+
+    # ── Augmented (Text Aug + SMOTE) ──────────────────────────────
+    "Logistic Regression — Augmented":       {"vec": "tfidf_augmented", "mdl": "lr_augmented",  "pca": None},
+    "Random Forest — Augmented":             {"vec": "tfidf_augmented", "mdl": "rf_augmented",  "pca": None},
+    "Gradient Boosting — Augmented":         {"vec": "tfidf_augmented", "mdl": "gb_augmented",  "pca": None},
+    "Naive Bayes — Augmented":               {"vec": "tfidf_augmented", "mdl": "nb_augmented",  "pca": None},
+    "LinearSVC — Augmented":                 {"vec": "tfidf_augmented", "mdl": "svc_augmented", "pca": None},
+
+    # ── PCA / TruncatedSVD (baseline vec + svd transform + pca-retrained models) ─
+    "Gradient Boosting — PCA":               {"vec": "tfidf_baseline",  "mdl": "gb_pca",  "pca": "svd"},
+    "LinearSVC — PCA":                       {"vec": "tfidf_baseline",  "mdl": "svc_pca", "pca": "svd"},
+}
+
+# Models that do NOT support predict_proba (no confidence bar)
+NO_PROBA_MODELS = {"svc_baseline", "svc_augmented", "svc_pca"}
+
+SAVE_DIR = "./saved_models_v2"
+
+# ------------------------------------------------------------------ #
+#  NLP SETUP  — loads shared resources once
+# ------------------------------------------------------------------ #
+@st.cache_resource
+def setup_nlp():
+    nltk.download('punkt',     quiet=True)
+    nltk.download('punkt_tab', quiet=True)
+    le    = joblib.load(os.path.join(SAVE_DIR, 'label_encoder.pkl'))
+    vader = SentimentIntensityAnalyzer()
+    return le, vader
+
+# ------------------------------------------------------------------ #
+#  LOAD A SPECIFIC MODEL BUNDLE  — cached per name
+# ------------------------------------------------------------------ #
+@st.cache_resource
+def load_model_bundle(display_name: str):
+    cfg = MODEL_REGISTRY[display_name]
+    vec   = joblib.load(os.path.join(SAVE_DIR, f"{cfg['vec']}.pkl"))
+    model = joblib.load(os.path.join(SAVE_DIR, f"{cfg['mdl']}.pkl"))
+    svd   = None
+    if cfg['pca']:
+        svd_path = os.path.join(SAVE_DIR, 'svd.pkl')
+        if os.path.exists(svd_path):
+            svd = joblib.load(svd_path)
+            if svd.n_components != 70:
+                st.error(
+                    f"❌ Loaded SVD has n_components={svd.n_components}, expected 70. "
+                    "Please re-save with the correct SVD from your notebook."
+                )
+                svd = None
+        else:
+            st.warning(
+                "⚠️ `svd.pkl` not found in `saved_models/`. "
+                "PCA variant will run **without** dimensionality reduction. "
+                "To fix: add `joblib.dump(svd, './saved_models/svd.pkl')` in your notebook after fitting TruncatedSVD.",
+                icon="⚠️"
+            )
+    return vec, model, svd, cfg['mdl']
+
+# ------------------------------------------------------------------ #
+#  TEXT HELPERS
+# ------------------------------------------------------------------ #
 SLANG = {
     'bc': 'because', 'u': 'you', 'r': 'are', 'w/': 'with',
     'idk': 'i do not know', 'rn': 'right now', 'smh': 'disappointed',
@@ -144,518 +255,363 @@ SLANG = {
     'imo': 'in my opinion', 'btw': 'by the way'
 }
 
-CRISIS_KEYWORDS = [
-    'suicide', 'kill myself', 'want to die', 'end my life', 'no reason to live',
-    'hopeless', 'worthless', 'harm myself', 'self harm', 'give up', 'cant go on',
-    'disappear', 'overdose', 'cutting', 'hurt myself'
-]
-
-# -----------------------------------------------------------------------
-# Resource Loading
-# -----------------------------------------------------------------------
-@st.cache_resource(show_spinner="Loading AI models…")
-def setup_nlp():
-    import nltk
-    from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-
-    nltk.download('punkt', quiet=True)
-    nltk.download('punkt_tab', quiet=True)
-
-    vader = SentimentIntensityAnalyzer()
-    le    = joblib.load('./saved_models/label_encoder.pkl')
-
-    models = {}
-
-    # Load all available models
-    model_files = {
-        "TF-IDF + LR (Augmented)": ("tfidf_augmented.pkl", "lr_augmented.pkl"),
-        "TF-IDF + LR (Baseline)":  ("tfidf_baseline.pkl",  "lr_baseline.pkl"),
-        "TF-IDF + RF (Augmented)": ("tfidf_augmented.pkl", "rf_augmented.pkl"),
-        "TF-IDF + GB (Augmented)": ("tfidf_augmented.pkl", "gb_augmented.pkl"),
-        "TF-IDF + NB (Augmented)": ("tfidf_augmented.pkl", "nb_augmented.pkl"),
-        "TF-IDF + SVC (Augmented)":("tfidf_augmented.pkl", "svc_augmented.pkl"),
-    }
-
-    for name, (vec_file, clf_file) in model_files.items():
-        v_path = f'./saved_models/{vec_file}'
-        c_path = f'./saved_models/{clf_file}'
-        if os.path.exists(v_path) and os.path.exists(c_path):
-            try:
-                models[name] = {
-                    "encoder": joblib.load(v_path),
-                    "clf":     joblib.load(c_path),
-                    "mode":    "TF-IDF"
-                }
-            except Exception:
-                pass
-
-    # Try SBERT
-    try:
-        from sentence_transformers import SentenceTransformer
-        sbert_enc = SentenceTransformer('./saved_models/sbert_encoder')
-        sbert_clf = joblib.load('./saved_models/sbert_lr.pkl')
-        models["SBERT + LR (Best)"] = {
-            "encoder": sbert_enc,
-            "clf":     sbert_clf,
-            "mode":    "SBERT"
-        }
-    except Exception:
-        pass
-
-    # Fallback
-    if not models:
-        try:
-            enc = joblib.load('./saved_models/tfidf_augmented.pkl')
-            clf = joblib.load('./saved_models/lr_augmented.pkl')
-            models["TF-IDF + LR (Augmented)"] = {"encoder": enc, "clf": clf, "mode": "TF-IDF"}
-        except Exception:
-            pass
-
-    return models, le, vader
-
-
-# -----------------------------------------------------------------------
-# Text Helpers
-# -----------------------------------------------------------------------
-def clean_text(text: str) -> str:
-    if not text:
-        return ""
+def clean_text(text):
     text = str(text).lower().strip()
+    text = re.sub(r'http\S+|www\S+|https\S+', '', text)
+    text = re.sub(r'@\w+', '', text)
+    text = re.sub(r'\d+', '', text)
     for k, v in SLANG.items():
         text = re.sub(r'\b' + re.escape(k) + r'\b', v, text)
     text = re.sub(r'[^\w\s]', ' ', text)
-    text = re.sub(r'\s+', ' ', text)
-    return text.strip()
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
 
+def clean_text_batch(text):
+    if pd.isna(text):
+        return ""
+    return clean_text(text)
 
-def extract_features(text: str):
-    """Extract 10 linguistic features from text."""
-    words = text.split()
-    sentences = re.split(r'[.!?]+', text)
-    sentences = [s.strip() for s in sentences if s.strip()]
+# ------------------------------------------------------------------ #
+#  AUDIO PROCESSING
+# ------------------------------------------------------------------ #
+def process_audio(audio_file):
+    recognizer = sr.Recognizer()
+    audio = AudioSegment.from_file(audio_file)
+    audio.export("temp.wav", format="wav")
+    with sr.AudioFile("temp.wav") as source:
+        audio_data = recognizer.record(source)
+        try:
+            return recognizer.recognize_google(audio_data)
+        except Exception as e:
+            return f"Error: Speech recognition failed. {str(e)}"
 
-    exclamation_count = text.count('!')
-    question_count    = text.count('?')
-    caps_ratio        = sum(1 for c in text if c.isupper()) / max(len(text), 1)
-    avg_word_len      = np.mean([len(w) for w in words]) if words else 0
-    unique_ratio      = len(set(words)) / max(len(words), 1)
-    crisis_kw_count   = sum(1 for kw in CRISIS_KEYWORDS if kw in text.lower())
-    neg_words         = ['not', 'never', 'no', "don't", "can't", "won't", "shouldn't"]
-    neg_count         = sum(1 for w in words if w.lower() in neg_words)
-    avg_sent_len      = np.mean([len(s.split()) for s in sentences]) if sentences else 0
-    ellipsis_count    = text.count('...')
-    repeat_chars      = len(re.findall(r'(.)\1{2,}', text))
+# ------------------------------------------------------------------ #
+#  VECTORISE HELPER  — handles baseline / augmented / PCA
+# ------------------------------------------------------------------ #
+def vectorize(texts: list, vec, svd):
+    X = vec.transform(texts)
+    if svd is not None:
+        X = svd.transform(X)          # returns dense numpy array
+        X = np.array(X, dtype=float)  # ensure dense float — matches training format
+    return X
 
-    return {
-        "Exclamation Marks": exclamation_count,
-        "Question Marks":    question_count,
-        "Caps Ratio":        round(caps_ratio, 3),
-        "Avg Word Length":   round(avg_word_len, 2),
-        "Vocabulary Richness": round(unique_ratio, 3),
-        "Crisis Keywords":   crisis_kw_count,
-        "Negation Words":    neg_count,
-        "Avg Sentence Length": round(avg_sent_len, 2),
-        "Ellipsis Count":    ellipsis_count,
-        "Repeated Chars":    repeat_chars,
-    }
+# ------------------------------------------------------------------ #
+#  ANALYSIS CORE
+# ------------------------------------------------------------------ #
+def perform_analysis(text, vec, model, svd, model_key, le, vader, display_name):
+    with st.spinner("Analyzing linguistic patterns..."):
+        start_time = time.time()
 
+        cleaned = clean_text(text)
+        X       = vectorize([cleaned], vec, svd)
 
-def predict(text: str, model_dict: dict, le):
-    encoder = model_dict["encoder"]
-    clf     = model_dict["clf"]
-    mode    = model_dict["mode"]
-    cleaned = clean_text(text)
-    if mode == "SBERT":
-        features = encoder.encode([cleaned])
-    else:
-        features = encoder.transform([cleaned])
-    pred  = clf.predict(features)[0]
-    proba = clf.predict_proba(features)[0]
-    label = le.inverse_transform([pred])[0]
-    return label, proba, le.classes_
+        pred  = model.predict(X)[0]
+        label = le.inverse_transform([pred])[0]
 
+        has_proba = model_key not in NO_PROBA_MODELS
+        if has_proba:
+            probabilities = model.predict_proba(X)[0]
 
-def sentiment_info(text: str, vader):
-    from textblob import TextBlob
-    blob   = TextBlob(text)
-    scores = vader.polarity_scores(text)
-    return blob, scores
+        blob     = TextBlob(text)
+        v_scores = vader.polarity_scores(text)
+        latency  = time.time() - start_time
 
+        st.markdown("## Diagnostic Summary")
+        st.caption(f"Engine: **{display_name}**")
+        c1, c2, c3 = st.columns(3)
 
-def detect_crisis_keywords(text: str):
-    found = [kw for kw in CRISIS_KEYWORDS if kw in text.lower()]
-    return found
+        with c1:
+            color = (
+                "#ff1a1a" if label.lower() == "crisis"
+                else "#ffb347" if label.lower() == "support"
+                else "#4cd964"
+            )
+            st.markdown(
+                f"""
+                <div style="
+                    background:{color};
+                    padding:25px;
+                    border-radius:18px;
+                    text-align:center;
+                    box-shadow:0 0 18px rgba(0,0,0,0.3);
+                ">
+                    <h2 style="margin:0;color:white;">{label.upper()}</h2>
+                    <p style="margin:0;color:white;">Primary Classification</p>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
 
+        with c2:
+            if has_proba:
+                conf = max(probabilities) * 100
+                st.metric("Model Confidence", f"{conf:.2f}%")
+                st.progress(conf / 100)
+            else:
+                st.metric("Model Confidence", "N/A (SVC)")
+                st.info("LinearSVC does not output probabilities.")
 
-# -----------------------------------------------------------------------
-# UI Components
-# -----------------------------------------------------------------------
-def show_label_badge(label: str):
-    css_class = f"badge-{label.lower()}"
-    st.markdown(
-        f'<div class="{css_class}">{label.upper()}</div>',
-        unsafe_allow_html=True,
-    )
+        with c3:
+            st.metric("Latency", f"{latency:.4f}s")
+            st.metric("Subjectivity", f"{blob.sentiment.subjectivity:.2f}")
 
-
-def run_analysis(text: str, model_dict: dict, le, vader):
-    start  = time.time()
-    label, proba, classes = predict(text, model_dict, le)
-    blob, v = sentiment_info(text, vader)
-    feats   = extract_features(text)
-    kws     = detect_crisis_keywords(text)
-    latency = time.time() - start
-
-    st.markdown('<p class="section-header">🔍 Classification Result</p>', unsafe_allow_html=True)
-    c1, c2, c3 = st.columns([1, 1, 1])
-
-    with c1:
-        show_label_badge(label)
-        st.caption("Primary Classification")
-
-    with c2:
-        conf = max(proba) * 100
-        st.metric("Model Confidence", f"{conf:.1f}%")
-        st.progress(conf / 100)
-        st.caption(f"Engine: {model_dict['mode']}")
-
-    with c3:
-        st.metric("Latency", f"{latency*1000:.1f} ms")
-        compound = v['compound']
-        sentiment_label = "Positive 😊" if compound > 0.05 else ("Negative 😔" if compound < -0.05 else "Neutral 😐")
-        st.write(f"**Sentiment:** {sentiment_label}")
-        st.write(f"**Words:** {len(text.split())}")
-
-    st.markdown("---")
-    col_a, col_b = st.columns(2)
-
-    with col_a:
-        st.markdown('<p class="section-header">📊 Class Probabilities</p>', unsafe_allow_html=True)
-        prob_df = pd.DataFrame({"Class": classes, "Probability": proba}).sort_values("Probability", ascending=False)
-        st.dataframe(prob_df.style.format({"Probability": "{:.3f}"}), use_container_width=True, hide_index=True)
-
-        st.markdown('<p class="section-header">💬 Sentiment Breakdown</p>', unsafe_allow_html=True)
-        sent_df = pd.DataFrame({
-            "Metric": ["Compound", "Positive", "Negative", "Neutral"],
-            "Score":  [v['compound'], v['pos'], v['neg'], v['neu']]
-        })
-        st.dataframe(sent_df.style.format({"Score": "{:.3f}"}), use_container_width=True, hide_index=True)
-
-    with col_b:
-        st.markdown('<p class="section-header">🧮 Linguistic Features (10)</p>', unsafe_allow_html=True)
-        feat_df = pd.DataFrame(list(feats.items()), columns=["Feature", "Value"])
-        st.dataframe(feat_df, use_container_width=True, hide_index=True)
-
-    # Crisis keywords
-    if kws:
-        st.markdown('<p class="section-header">🚨 Detected Crisis Keywords</p>', unsafe_allow_html=True)
-        chips = "".join([f'<span class="keyword-chip">⚠️ {kw}</span>' for kw in kws])
-        st.markdown(chips, unsafe_allow_html=True)
-
-    if label.lower() == "crisis":
-        st.error("⚠️ **CRISIS DETECTED** — Immediate human review is recommended.")
-
-
-# -----------------------------------------------------------------------
-# Login
-# -----------------------------------------------------------------------
-def login_page():
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.markdown("<h1 style='text-align:center;color:#e6edf3'>🧠 Linguistic Sentinel</h1>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align:center;color:#8b949e'>Mental Health Crisis Detection System</p>", unsafe_allow_html=True)
         st.markdown("---")
-        user = st.text_input("Access Key", placeholder="Enter username")
-        pw   = st.text_input("Security Code", type="password", placeholder="Enter password")
-        if st.button("🔐 Initialize System", use_container_width=True):
+        x1, x2 = st.columns(2)
+
+        with x1:
+            st.subheader("Emotional Pulse")
+            data = pd.DataFrame({
+                "Metric": ["Compound", "Positive", "Negative", "Neutral"],
+                "Value": [
+                    v_scores['compound'],
+                    v_scores['pos'],
+                    v_scores['neg'],
+                    v_scores['neu']
+                ]
+            })
+            st.table(data)
+
+        with x2:
+            st.subheader("Linguistic Structure")
+            st.write(f"**Word Count:** {len(text.split())}")
+            st.write(f"**Sentence Count:** {len(blob.sentences)}")
+            st.write(f"**Unique Vocabulary:** {len(set(text.lower().split()))}")
+
+            if has_proba:
+                st.subheader("Class Probabilities")
+                prob_df = pd.DataFrame({
+                    "Class":       le.classes_,
+                    "Probability": [f"{p*100:.2f}%" for p in probabilities]
+                })
+                st.table(prob_df)
+
+# ------------------------------------------------------------------ #
+#  LOGIN
+# ------------------------------------------------------------------ #
+def login():
+    col1, col2, col3 = st.columns([1, 1.3, 1])
+    with col2:
+        st.markdown(
+            """
+            <div class="login-box">
+            <div class="main-title">SENTINEL ☄</div>
+            <div class="sub-title">Crisis Communication</div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+        user = st.text_input("Access Key")
+        pw   = st.text_input("Security Code", type="password")
+        if st.button("Initialize System"):
             if user == "admin" and pw == "1234":
-                st.session_state["auth"] = True
+                st.session_state['auth'] = True
                 st.rerun()
             else:
-                st.error("❌ Invalid credentials. Try admin / 1234")
-        st.caption("Demo credentials: admin / 1234")
+                st.error("Invalid Credentials")
 
-
-# -----------------------------------------------------------------------
-# Main App
-# -----------------------------------------------------------------------
+# ------------------------------------------------------------------ #
+#  MAIN APP
+# ------------------------------------------------------------------ #
 def main_app():
-    models, le, vader = setup_nlp()
+    le, vader = setup_nlp()
 
-    if not models:
-        st.error("❌ No models found in ./saved_models/. Please upload your model files.")
-        return
-
-    st.sidebar.image("https://img.icons8.com/color/96/brain.png", width=60)
-    st.sidebar.title("Sentinel Menu")
-
-    # Model selector
-    st.sidebar.markdown("### 🤖 Model Selection")
-    selected_model_name = st.sidebar.selectbox("Choose Model", list(models.keys()))
-    selected_model = models[selected_model_name]
-    st.sidebar.caption(f"Engine: **{selected_model['mode']}**")
-    st.sidebar.markdown("---")
+    # ── Sidebar ────────────────────────────────────────────────────
+    st.sidebar.title("SENTINEL MENU")
 
     menu = st.sidebar.radio(
         "Navigation",
-        ["🏠 Core Dashboard", "📂 Batch Processing", "📋 Audit Logs"],
+        [
+            "Core Dashboard",
+            "Voice Intelligence",
+            "Data Processing Hub",
+            "Audit Logs",
+            "System Specs"
+        ]
     )
+
     st.sidebar.markdown("---")
-    if st.sidebar.button("🔴 Terminate Session"):
-        st.session_state["auth"] = False
+    st.sidebar.subheader("🧠 Model Selection")
+
+    variant = st.sidebar.selectbox(
+        "Training Variant",
+        ["Baseline (SMOTE only)", "Augmented (Text Aug + SMOTE)", "PCA (TruncatedSVD)"]
+    )
+
+    variant_prefix_map = {
+        "Baseline (SMOTE only)":            "Baseline",
+        "Augmented (Text Aug + SMOTE)":     "Augmented",
+        "PCA (TruncatedSVD)":               "PCA",
+    }
+    suffix = variant_prefix_map[variant]
+
+    algo_options = ["Logistic Regression", "Random Forest", "Gradient Boosting", "Naive Bayes", "LinearSVC"]
+    if suffix == "PCA":
+        algo_options = ["Gradient Boosting", "LinearSVC"]
+    algo = st.sidebar.selectbox("Algorithm", algo_options)
+
+    display_name = f"{algo} — {suffix}"
+    vec, model, svd, model_key = load_model_bundle(display_name)
+
+    st.sidebar.success(f"Active: **{display_name}**")
+    st.sidebar.markdown("---")
+
+    if st.sidebar.button("Terminate Session"):
+        st.session_state['auth'] = False
         st.rerun()
 
-    # ---- 1. Core Dashboard ----
-    if menu == "🏠 Core Dashboard":
-        st.title("🧠 Linguistic Sentinel")
-        st.markdown("Analyze text for mental health crisis signals in real time.")
+    # ── 1. Core Dashboard ──────────────────────────────────────────
+    if menu == "Core Dashboard":
+        st.title("Linguistic Sentinel AI")
         st.markdown("---")
-
         input_text = st.text_area(
-            "Forensic Text Input:",
-            height=180,
-            placeholder="Paste or type any user-generated content here…",
+            "Forensic Text Input",
+            height=220,
+            placeholder="Enter text for forensic analysis..."
+        )
+        if st.button("Execute Forensic Scan"):
+            if input_text.strip():
+                perform_analysis(
+                    input_text, vec, model, svd, model_key, le, vader, display_name
+                )
+            else:
+                st.error("Input field is empty.")
+
+    # ── 2. Voice Intelligence ──────────────────────────────────────
+    elif menu == "Voice Intelligence":
+        st.title("Voice Transcription & Analysis")
+        uploaded = st.file_uploader(
+            "Upload Audio Buffer",
+            type=["mp3", "wav", "m4a"]
+        )
+        if uploaded:
+            st.audio(uploaded)
+            if st.button("Process Audio"):
+                text = process_audio(uploaded)
+                if "Error" not in text:
+                    st.success("Transcription Complete")
+                    st.write(f"**Transcript:** {text}")
+                    st.markdown("---")
+                    perform_analysis(
+                        text, vec, model, svd, model_key, le, vader, display_name
+                    )
+                else:
+                    st.error(text)
+
+    # ── 3. Data Processing Hub ─────────────────────────────────────
+    elif menu == "Data Processing Hub":
+        st.title("Data Management & Transformation Hub")
+        uploaded_file = st.file_uploader(
+            "Select Data Source (CSV or XLSX)",
+            type=["csv", "xlsx"]
         )
 
-        col_btn1, col_btn2 = st.columns([3, 1])
-        with col_btn1:
-            scan_btn = st.button("🚀 Execute Forensic Scan", use_container_width=True, type="primary")
-        with col_btn2:
-            compare_btn = st.button("⚖️ Compare All Models", use_container_width=True)
-
-        if scan_btn:
-            if input_text.strip():
-                run_analysis(input_text.strip(), selected_model, le, vader)
+        if uploaded_file:
+            if uploaded_file.name.endswith('.csv'):
+                df = pd.read_csv(uploaded_file)
             else:
-                st.warning("⚠️ Please enter some text before scanning.")
+                df = pd.read_excel(uploaded_file)
 
-        if compare_btn:
-            if input_text.strip():
-                st.markdown("---")
-                st.markdown('<p class="section-header">⚖️ Model Comparison</p>', unsafe_allow_html=True)
-                comparison_rows = []
-                for mname, mdict in models.items():
-                    try:
-                        t0 = time.time()
-                        lbl, proba, classes = predict(input_text.strip(), mdict, le)
-                        lat = (time.time() - t0) * 1000
-                        comparison_rows.append({
-                            "Model":      mname,
-                            "Prediction": lbl,
-                            "Confidence": f"{max(proba)*100:.1f}%",
-                            "Latency (ms)": f"{lat:.1f}",
-                        })
-                    except Exception as e:
-                        comparison_rows.append({
-                            "Model": mname, "Prediction": "Error",
-                            "Confidence": "-", "Latency (ms)": "-"
-                        })
-                cmp_df = pd.DataFrame(comparison_rows)
-                st.dataframe(cmp_df, use_container_width=True, hide_index=True)
-            else:
-                st.warning("⚠️ Enter text first to compare models.")
-
-    # ---- 2. Batch Processing ----
-    elif menu == "📂 Batch Processing":
-        st.title("📂 Batch Data Processing Hub")
-        st.markdown("Upload a CSV or XLSX file with a `text` column for bulk analysis.")
-        st.markdown("---")
-
-        uploaded = st.file_uploader("Select Data Source", type=["csv", "xlsx"])
-        if uploaded:
-            df = pd.read_csv(uploaded) if uploaded.name.endswith(".csv") else pd.read_excel(uploaded)
-            st.write("**Preview (first 5 rows):**")
-            st.dataframe(df.head(), use_container_width=True)
+            st.write("Data Preview:", df.head())
 
             task = st.selectbox(
-                "Select Operation",
+                "Select Operation:",
                 [
-                    "Batch Label Prediction",
-                    "Text Cleaning",
-                    "Exploratory Data Analysis",
-                    "Crisis Keyword Detection",
-                ],
+                    "Structural Data Cleaning",
+                    "Exploratory Data Analysis (EDA)",
+                    "Batch Label Prediction"
+                ]
             )
 
-            # --- EDA sub-options ---
-            chart_type = None
-            eda_col = None
-            if task == "Exploratory Data Analysis":
-                eda_col = st.selectbox("Select column for analysis", df.columns.tolist())
-                chart_type = st.selectbox(
-                    "Chart Type",
-                    ["Bar Chart", "Histogram", "Pie Chart", "Box Plot (text length)", "Heatmap (correlations)"]
-                )
+            if st.button("Run Operation"):
+                if task == "Structural Data Cleaning":
+                    with st.spinner("Cleaning dataset..."):
+                        df = df.drop_duplicates()
+                        if 'text' in df.columns:
+                            df['cleaned_text'] = df['text'].apply(clean_text_batch)
+                        st.success("Cleaning complete")
 
-            if st.button("▶️ Run Operation", type="primary"):
-
-                # --- Batch Label Prediction ---
-                if task == "Batch Label Prediction":
-                    if "text" not in df.columns:
-                        st.error("Column 'text' not found in the uploaded file.")
-                    else:
-                        with st.spinner("Running batch predictions…"):
-                            texts   = df["text"].fillna("").tolist()
-                            cleaned = [clean_text(t) for t in texts]
-                            enc     = selected_model["encoder"]
-                            clf     = selected_model["clf"]
-                            mode    = selected_model["mode"]
-                            features = enc.encode(cleaned, show_progress_bar=False) if mode == "SBERT" else enc.transform(cleaned)
-                            preds   = clf.predict(features)
-                            df["Predicted_Label"] = le.inverse_transform(preds)
-                        st.success("✅ Batch prediction complete!")
-                        st.dataframe(df[["text", "Predicted_Label"]].head(20), use_container_width=True)
-                        st.markdown('<p class="section-header">📊 Label Distribution</p>', unsafe_allow_html=True)
-                        st.bar_chart(df["Predicted_Label"].value_counts())
-
-                # --- Text Cleaning ---
-                elif task == "Text Cleaning":
-                    if "text" not in df.columns:
-                        st.error("Column 'text' not found.")
-                    else:
-                        df["cleaned_text"] = df["text"].apply(clean_text)
-                        st.success("✅ Text cleaning complete!")
-                        st.dataframe(df[["text", "cleaned_text"]].head(10), use_container_width=True)
-
-                # --- EDA ---
-                elif task == "Exploratory Data Analysis":
+                elif task == "Exploratory Data Analysis (EDA)":
                     st.subheader("Statistical Summary")
-                    st.write(df.describe(include="all"))
+                    st.write(df.describe())
+                    if 'text' in df.columns:
+                        df['text_len'] = df['text'].astype(str).apply(len)
+                        st.bar_chart(df['text_len'].head(50))
 
-                    st.markdown(f'<p class="section-header">📊 {chart_type} — {eda_col}</p>', unsafe_allow_html=True)
-                    col_data = df[eda_col].dropna()
+                elif task == "Batch Label Prediction":
+                    if 'text' in df.columns:
+                        with st.spinner(f"Predicting with {display_name}..."):
+                            texts   = df['text'].fillna("").apply(clean_text).tolist()
+                            X_batch = vectorize(texts, vec, svd)
+                            preds   = model.predict(X_batch)
+                            df['Predicted_Label'] = le.inverse_transform(preds)
 
-                    if chart_type == "Bar Chart":
-                        st.bar_chart(col_data.value_counts())
+                            # confidence where available
+                            if model_key not in NO_PROBA_MODELS:
+                                probs = model.predict_proba(X_batch)
+                                df['Confidence_%'] = (np.max(probs, axis=1) * 100).round(2)
 
-                    elif chart_type == "Histogram":
-                        if pd.api.types.is_numeric_dtype(col_data):
-                            import matplotlib.pyplot as plt
-                            fig, ax = plt.subplots(facecolor='#161b22')
-                            ax.hist(col_data, bins=30, color='#58a6ff', edgecolor='#30363d')
-                            ax.set_facecolor('#0d1117')
-                            ax.tick_params(colors='#e6edf3')
-                            ax.spines[:].set_color('#30363d')
-                            st.pyplot(fig)
-                        else:
-                            st.warning("Histogram requires a numeric column.")
-
-                    elif chart_type == "Pie Chart":
-                        import matplotlib.pyplot as plt
-                        counts = col_data.value_counts().head(10)
-                        fig, ax = plt.subplots(facecolor='#161b22')
-                        ax.pie(counts.values, labels=counts.index,
-                               autopct='%1.1f%%', startangle=140,
-                               colors=['#58a6ff','#3fb950','#f0b429','#da3633','#a371f7',
-                                       '#39d353','#ffa657','#ff7b72','#79c0ff','#d2a8ff'])
-                        st.pyplot(fig)
-
-                    elif chart_type == "Box Plot (text length)":
-                        import matplotlib.pyplot as plt
-                        df["_text_len"] = df[eda_col].astype(str).str.len()
-                        fig, ax = plt.subplots(facecolor='#161b22')
-                        ax.boxplot(df["_text_len"], patch_artist=True,
-                                   boxprops=dict(facecolor='#58a6ff', color='#30363d'),
-                                   medianprops=dict(color='#f0b429'))
-                        ax.set_facecolor('#0d1117')
-                        ax.tick_params(colors='#e6edf3')
-                        ax.spines[:].set_color('#30363d')
-                        ax.set_title("Text Length Distribution", color='#e6edf3')
-                        st.pyplot(fig)
-
-                    elif chart_type == "Heatmap (correlations)":
-                        import matplotlib.pyplot as plt
-                        import seaborn as sns
-                        num_df = df.select_dtypes(include='number')
-                        if num_df.shape[1] < 2:
-                            st.warning("Need at least 2 numeric columns for a heatmap.")
-                        else:
-                            fig, ax = plt.subplots(figsize=(8, 5), facecolor='#161b22')
-                            sns.heatmap(num_df.corr(), annot=True, fmt=".2f",
-                                        cmap='Blues', ax=ax,
-                                        linecolor='#30363d', linewidths=0.5)
-                            ax.set_facecolor('#0d1117')
-                            ax.tick_params(colors='#e6edf3')
-                            st.pyplot(fig)
-
-                # --- Crisis Keyword Detection ---
-                elif task == "Crisis Keyword Detection":
-                    if "text" not in df.columns:
-                        st.error("Column 'text' not found.")
+                            st.success(f"Batch Prediction Complete — {display_name}")
                     else:
-                        df["crisis_keywords_found"] = df["text"].apply(
-                            lambda x: ", ".join(detect_crisis_keywords(str(x))) if detect_crisis_keywords(str(x)) else "none"
-                        )
-                        df["flagged"] = df["crisis_keywords_found"] != "none"
+                        st.error("Column 'text' not found in file")
 
-                        flagged_df   = df[df["flagged"]]
-                        unflagged_df = df[~df["flagged"]]
+                st.write(df.head())
 
-                        st.success(f"✅ Scan complete! {len(flagged_df)} flagged out of {len(df)} rows.")
-
-                        col_f, col_u = st.columns(2)
-                        with col_f:
-                            st.markdown(f"### 🚨 Flagged ({len(flagged_df)})")
-                            if not flagged_df.empty:
-                                st.dataframe(flagged_df[["text", "crisis_keywords_found"]].head(20), use_container_width=True)
-                        with col_u:
-                            st.markdown(f"### ✅ Clean ({len(unflagged_df)})")
-                            if not unflagged_df.empty:
-                                st.dataframe(unflagged_df[["text"]].head(20), use_container_width=True)
-
-                        # Keyword frequency chart
-                        all_kws = []
-                        for kws in df["crisis_keywords_found"]:
-                            if kws != "none":
-                                all_kws.extend([k.strip() for k in kws.split(",")])
-                        if all_kws:
-                            kw_series = pd.Series(all_kws).value_counts()
-                            st.markdown('<p class="section-header">🔑 Keyword Frequency Chart</p>', unsafe_allow_html=True)
-                            st.bar_chart(kw_series)
-
-                        # Flagged vs Clean pie
-                        import matplotlib.pyplot as plt
-                        fig, ax = plt.subplots(facecolor='#161b22')
-                        ax.pie(
-                            [len(flagged_df), len(unflagged_df)],
-                            labels=["Flagged", "Clean"],
-                            autopct='%1.1f%%',
-                            colors=['#da3633', '#3fb950'],
-                            startangle=90,
-                        )
-                        ax.set_facecolor('#161b22')
-                        st.markdown('<p class="section-header">📊 Flagged vs Clean</p>', unsafe_allow_html=True)
-                        st.pyplot(fig)
-
-                # --- Export always shown ---
                 output = io.BytesIO()
-                with pd.ExcelWriter(output, engine="openpyxl") as writer:
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
                     df.to_excel(writer, index=False)
                 st.download_button(
-                    label="⬇️ Download Processed Data (.xlsx)",
+                    label="Download Processed Data",
                     data=output.getvalue(),
                     file_name="sentinel_processed_report.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
 
-    # ---- 3. Audit Logs ----
-    elif menu == "📋 Audit Logs":
-        st.title("📋 Security & Activity Logs")
-        st.info(f"Session started at: {time.ctime()}")
+    # ── 4. Audit Logs ──────────────────────────────────────────────
+    elif menu == "Audit Logs":
+        st.title("Security & Activity Logs")
+        st.info(f"Current Monitoring Session: {time.ctime()}")
         st.table(pd.DataFrame({
-            "Event":     ["System Login", "NLP Resource Load", "Engine Ready"],
-            "Status":    ["✅ Success", "✅ Verified", "✅ Online"],
-            "Timestamp": [time.ctime()] * 3,
+            "Event":  ["System Login", "NLP Resource Load", "Active Model"],
+            "Status": ["Success",      "Verified",          display_name]
         }))
 
+    # ── 5. System Specs ────────────────────────────────────────────
+    elif menu == "System Specs":
+        st.title("System Architecture")
 
-# -----------------------------------------------------------------------
-# Entry Point
-# -----------------------------------------------------------------------
-if "auth" not in st.session_state:
-    st.session_state["auth"] = False
+        # Build a registry table for the UI
+        registry_rows = []
+        for name, cfg in MODEL_REGISTRY.items():
+            registry_rows.append({
+                "Model Name":    name,
+                "Vectorizer":    cfg["vec"],
+                "PCA":           "Yes" if cfg["pca"] else "No",
+                "Active":        "✅" if name == display_name else ""
+            })
 
-if not st.session_state["auth"]:
-    login_page()
+        st.subheader("Full Model Registry")
+        st.dataframe(pd.DataFrame(registry_rows), use_container_width=True)
+
+        st.subheader("Current Engine")
+        st.json({
+            "Active Model":     display_name,
+            "Vectorizer":       MODEL_REGISTRY[display_name]["vec"],
+            "PCA Applied":      MODEL_REGISTRY[display_name]["pca"] is not None,
+            "Auxiliary Modules": [
+                "VADER Sentiment",
+                "TextBlob Linguistic",
+                "Google Speech API"
+            ],
+            "Security Protocol": "AES-256 Auth Simulation"
+        })
+
+# ------------------------------------------------------------------ #
+#  RUN
+# ------------------------------------------------------------------ #
+if 'auth' not in st.session_state:
+    st.session_state['auth'] = False
+
+if not st.session_state['auth']:
+    login()
 else:
     main_app()
